@@ -1,0 +1,61 @@
+{
+  "description": "Example labeled pairs for calibration / metrics. Extend with real human grades.",
+  "items": [
+    {
+      "student_text": "Plants use sunlight in chloroplasts to make sugar from CO2 and water and release oxygen.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 9.0,
+      "auto_score": 8.5
+    },
+    {
+      "student_text": "It is how plants eat light to grow.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 4.0,
+      "auto_score": 4.2
+    },
+    {
+      "student_text": "Chlorophyll absorbs light; Calvin cycle fixes carbon into sugars in the stroma.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 8.5,
+      "auto_score": 7.8
+    },
+    {
+      "student_text": "Mitochondria do photosynthesis.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 2.0,
+      "auto_score": 2.5
+    },
+    {
+      "student_text": "Light-dependent reactions produce ATP and NADPH; light-independent reactions build glucose.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 9.5,
+      "auto_score": 8.9
+    },
+    {
+      "student_text": "Plants need sun water and air to make food.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 6.0,
+      "auto_score": 6.2
+    },
+    {
+      "student_text": "Photosynthesis equation: 6CO2 + 6H2O + light -> C6H12O6 + 6O2.",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 9.0,
+      "auto_score": 8.0
+    },
+    {
+      "student_text": "",
+      "reference_text": "Photosynthesis converts light energy into chemical energy stored in glucose using chloroplasts.",
+      "reference_keywords": ["photosynthesis", "chloroplast", "glucose", "oxygen", "light"],
+      "human_score": 0.0,
+      "auto_score": 0.0
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.py[cod]
+.Python
+venv/
+.venv/
+node_modules/
+frontend/dist/
+data/uploads/
+*.sqlite3
+.DS_Store
+samples/calibration_weights.json
+.cursor/

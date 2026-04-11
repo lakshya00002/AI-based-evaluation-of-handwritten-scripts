@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: handwritten_assessment
+      MYSQL_USER: ${MYSQL_USER:-assess}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me_strong}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_change_me}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-assess}:${MYSQL_PASSWORD:-change_me_strong}@db:3306/handwritten_assessment
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      UPLOAD_DIR: /data/uploads
+      TESSERACT_CMD: /usr/bin/tesseract
+    ports:
+      - "8000:8000"
+    volumes:
+      - upload_data:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  upload_data:
