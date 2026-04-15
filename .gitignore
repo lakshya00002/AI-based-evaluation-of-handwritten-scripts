@@ -11,3 +11,9 @@ data/uploads/
 .DS_Store
 samples/calibration_weights.json
 .cursor/
+ocr_engines/
+ocr_env/
+backend/venv/
+backend/uploads/
+frontend/dist/
+frontend/.next/

@@ -1,42 +1,36 @@
-"""FastAPI dependencies: auth and DB session."""
-
-from typing import Annotated, Optional
-
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
-from app.models.orm import User, UserRole
-from app.security import decode_token
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+from app.models import Session as UserSession
+from app.models import User
 
 
 def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
     db: Session = Depends(get_db),
+    session_id: str | None = Cookie(default=None, alias=settings.session_cookie_name),
 ) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = decode_token(token)
-        sub: Optional[str] = payload.get("sub")
-        if sub is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = db.query(User).filter(User.email == sub).first()
-    if user is None or not user.is_active:
-        raise credentials_exception
+    if not session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    token = db.query(UserSession).filter(UserSession.session_id == session_id).first()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+
+    user = db.query(User).filter(User.id == token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 
 
-def get_current_teacher(user: Annotated[User, Depends(get_current_user)]) -> User:
-    if user.role not in (UserRole.teacher, UserRole.admin):
-        raise HTTPException(status_code=403, detail="Teacher or admin role required")
-    return user
+def require_teacher(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teacher role required")
+    return current_user
+
+
+def require_student(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "student":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Student role required")
+    return current_user

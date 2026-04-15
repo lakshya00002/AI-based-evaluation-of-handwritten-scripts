@@ -1,1 +1,1 @@
-"""Handwritten assessment FastAPI application package."""
+# Backend application package.

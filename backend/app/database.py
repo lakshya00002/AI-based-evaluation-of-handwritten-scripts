@@ -1,29 +1,36 @@
-"""SQLAlchemy engine and session factory."""
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from collections.abc import Generator
+from app.config import settings
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-from app.config import get_settings
+class Base(DeclarativeBase):
+    pass
 
-settings = get_settings()
 
-engine = create_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False,
-)
-
+connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+engine = create_engine(settings.database_url, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 
-def get_db() -> Generator[Session, None, None]:
-    """FastAPI dependency yielding a DB session."""
+def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def run_startup_migrations() -> None:
+    inspector = inspect(engine)
+    if "assignments" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("assignments")}
+    with engine.begin() as connection:
+        if "due_date" not in columns:
+            connection.execute(text("ALTER TABLE assignments ADD COLUMN due_date DATETIME"))
+        if "allow_multiple_submissions" not in columns:
+            connection.execute(
+                text("ALTER TABLE assignments ADD COLUMN allow_multiple_submissions BOOLEAN NOT NULL DEFAULT 0")
+            )

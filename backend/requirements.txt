@@ -1,35 +1,8 @@
-# FastAPI stack
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-python-multipart==0.0.20
-pydantic==2.10.4
-pydantic-settings==2.7.0
-email-validator==2.2.0
-
-# DB
-SQLAlchemy==2.0.36
-pymysql==1.1.1
-cryptography==44.0.0
-alembic==1.14.0
-
-# Auth
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-
-# OCR / CV
-pytesseract==0.3.13
-opencv-python-headless==4.10.0.84
-Pillow==11.0.0
-pdf2image==1.17.0
-numpy==2.2.1
-
-# NLP / ML
-sentence-transformers==3.3.1
-scikit-learn==1.6.0
-keybert==0.8.5
-
-# Async utilities
-httpx==0.28.1
-
-# Optional: EasyOCR (heavy); uncomment if USE_EASYOCR=true
-# easyocr==1.7.2
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic[email]
+pydantic-settings
+passlib[bcrypt]
+bcrypt<4
+python-multipart

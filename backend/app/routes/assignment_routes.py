@@ -1,38 +1,38 @@
-"""Assignments and model answers."""
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.controllers import assignment_controller
 from app.database import get_db
-from app.dependencies import get_current_teacher, get_current_user
-from app.models.orm import User
-from app.schemas.assignment import AssignmentCreate, AssignmentOut
+from app.dependencies import get_current_user, require_teacher
+from app.models import Assignment, User
+from app.schemas import AssignmentCreate, AssignmentOut
 
-router = APIRouter(prefix="/assignments", tags=["assignments"])
-
-
-@router.get("", response_model=list[AssignmentOut])
-def list_assignments(
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-) -> list[AssignmentOut]:
-    return assignment_controller.list_assignments(db)
+router = APIRouter(tags=["assignments"])
 
 
-@router.post("", response_model=AssignmentOut)
+@router.get("/assignments", response_model=list[AssignmentOut])
+def get_assignments(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role == "teacher":
+        return db.query(Assignment).filter(Assignment.created_by == current_user.id).all()
+    return db.query(Assignment).all()
+
+
+@router.post("/assignments", response_model=AssignmentOut)
 def create_assignment(
-    body: AssignmentCreate,
+    payload: AssignmentCreate,
+    teacher: User = Depends(require_teacher),
     db: Session = Depends(get_db),
-    teacher: User = Depends(get_current_teacher),
-) -> AssignmentOut:
-    return assignment_controller.create_assignment(db, teacher, body)
-
-
-@router.get("/{assignment_id}", response_model=AssignmentOut)
-def get_assignment(
-    assignment_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-) -> AssignmentOut:
-    return assignment_controller.get_assignment(db, assignment_id)
+):
+    assignment = Assignment(
+        title=payload.title,
+        description=payload.description,
+        created_by=teacher.id,
+        due_date=payload.due_date,
+        allow_multiple_submissions=payload.allow_multiple_submissions,
+        reference_answer=payload.reference_answer,
+        reference_keywords=payload.reference_keywords,
+        reference_concepts=payload.reference_concepts,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return assignment

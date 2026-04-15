@@ -1,0 +1,3 @@
+Backpropagation sends the error from output layer to hidden layers and computes gradients.
+Then gradient descent updates weights to reduce loss over iterations.
+
