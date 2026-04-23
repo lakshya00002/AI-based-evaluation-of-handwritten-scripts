@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "../../components/Sidebar";
+import EvaluationBreakdown from "../../components/EvaluationBreakdown";
 import {
   createAssignment,
+  evaluateSubmission,
   getAssignments,
   getMe,
   getSubmissions,
@@ -24,6 +26,9 @@ export default function TeacherDashboard() {
   const [resultsError, setResultsError] = useState("");
   const [loadingResults, setLoadingResults] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [evalBusy, setEvalBusy] = useState(null);
+  const [evalNotice, setEvalNotice] = useState("");
+
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -33,8 +38,6 @@ export default function TeacherDashboard() {
     reference_keywords: "",
     reference_concepts: ""
   });
-  const [ocrVisibility, setOcrVisibility] = useState({});
-
   const selectedAssignment = useMemo(
     () => assignments.find((item) => String(item.id) === String(selectedAssignmentId)),
     [assignments, selectedAssignmentId]
@@ -93,6 +96,22 @@ export default function TeacherDashboard() {
       setResultsError(err.response?.data?.detail || "Unable to load results for this assignment");
     } finally {
       setLoadingResults(false);
+    }
+  };
+
+  const runEvaluate = async (submissionId) => {
+    setEvalBusy(submissionId);
+    setEvalNotice("");
+    try {
+      await evaluateSubmission(submissionId, { force: true });
+      setEvalNotice(`Submission #${submissionId} re-evaluated successfully.`);
+      if (active === "Results" && selectedAssignmentId) {
+        await fetchResults(selectedAssignmentId);
+      }
+    } catch (err) {
+      setEvalNotice(err.response?.data?.detail || "Re-evaluation failed");
+    } finally {
+      setEvalBusy(null);
     }
   };
 
@@ -164,6 +183,9 @@ export default function TeacherDashboard() {
         {active === "Submissions" && (
           <div className="space-y-3">
             <h1 className="text-2xl font-bold">Submissions for Assignment #{selectedAssignmentId}</h1>
+            {evalNotice && (
+              <p className={`text-sm ${evalNotice.includes("failed") ? "text-red-600" : "text-green-700"}`}>{evalNotice}</p>
+            )}
             {submissions.map((submission) => (
               <div key={submission.id} className="bg-white rounded shadow p-4">
                 <p><strong>Submission ID:</strong> {submission.id}</p>
@@ -171,6 +193,14 @@ export default function TeacherDashboard() {
                 <p><strong>Text:</strong> {submission.text || "-"}</p>
                 <p><strong>File path:</strong> {submission.file_path || "-"}</p>
                 <p className="text-sm text-slate-500 mt-2">This submission is auto-evaluated at upload time.</p>
+                <button
+                  type="button"
+                  className="mt-2 text-sm bg-indigo-600 text-white px-3 py-1.5 rounded disabled:opacity-50"
+                  disabled={evalBusy === submission.id}
+                  onClick={() => runEvaluate(submission.id)}
+                >
+                  {evalBusy === submission.id ? "Re-evaluating…" : "Re-run evaluation (refresh metrics & OCR)"}
+                </button>
               </div>
             ))}
           </div>
@@ -184,30 +214,31 @@ export default function TeacherDashboard() {
             {!loadingResults && !resultsError && results.length === 0 && (
               <p className="text-slate-600">No results yet for this assignment. Evaluate submissions first.</p>
             )}
+            {evalNotice && active === "Results" && (
+              <p className={`text-sm ${evalNotice.includes("failed") ? "text-red-600" : "text-green-700"}`}>{evalNotice}</p>
+            )}
             {results.map((result) => (
               <div key={result.id} className="bg-white rounded shadow p-4">
                 <p><strong>Assignment:</strong> {result.assignment_title}</p>
                 <p><strong>Submission:</strong> #{result.submission_id}</p>
                 <p><strong>Student ID:</strong> {result.student_id}</p>
-                <p><strong>Score:</strong> {result.score}</p>
+                <p>
+                  <strong>Score:</strong>{" "}
+                  {result.score}
+                  {result.feedback?.final_evaluation?.max_marks != null
+                    ? ` / ${result.feedback.final_evaluation.max_marks}`
+                    : " / 10"}
+                </p>
                 <p><strong>Grade:</strong> {result.grade}</p>
-                {result.ocr_extracted_text && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      className="text-xs bg-slate-200 px-2 py-1 rounded"
-                      onClick={() => setOcrVisibility((prev) => ({ ...prev, [result.id]: !prev[result.id] }))}
-                    >
-                      {ocrVisibility[result.id] ? "Hide OCR Text" : "Show OCR Text"}
-                    </button>
-                    {ocrVisibility[result.id] && (
-                      <pre className="bg-amber-50 border border-amber-200 p-3 rounded mt-2 text-xs whitespace-pre-wrap">
-                        {result.ocr_extracted_text}
-                      </pre>
-                    )}
-                  </div>
-                )}
-                <pre className="bg-slate-100 p-3 rounded mt-2 text-xs overflow-auto">{JSON.stringify(result.feedback, null, 2)}</pre>
+                <button
+                  type="button"
+                  className="mt-2 text-sm bg-indigo-600 text-white px-3 py-1.5 rounded disabled:opacity-50"
+                  disabled={evalBusy === result.submission_id}
+                  onClick={() => runEvaluate(result.submission_id)}
+                >
+                  {evalBusy === result.submission_id ? "Re-evaluating…" : "Re-run evaluation (refresh metrics & OCR)"}
+                </button>
+                <EvaluationBreakdown result={result} />
               </div>
             ))}
           </div>

@@ -29,6 +29,9 @@ export const submitAssignment = ({ assignmentId, text, file }) => {
   });
 };
 export const getSubmissions = (assignmentId) => api.get(`/submissions/${assignmentId}`);
+export const getMySubmissions = () => api.get("/submissions/mine");
+export const deleteMySubmissionsForAssignment = (assignmentId) =>
+  api.delete(`/submissions/mine/${assignmentId}`);
 
 export const evaluateSubmission = (submissionId, { force = true } = {}) =>
   api.post(`/evaluate/${submissionId}?force=${force ? "true" : "false"}`);

@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "../../components/Sidebar";
-import { getAssignments, getMe, getStudentResults, logout, submitAssignment } from "../../lib/api";
+import EvaluationBreakdown from "../../components/EvaluationBreakdown";
+import {
+  deleteMySubmissionsForAssignment,
+  getAssignments,
+  getMe,
+  getMySubmissions,
+  getStudentResults,
+  logout,
+  submitAssignment
+} from "../../lib/api";
 
 const tabs = ["Assignments", "My Results"];
 
@@ -16,6 +25,9 @@ export default function StudentDashboard() {
   const [submissionState, setSubmissionState] = useState({ assignment_id: "", text: "", file: null });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mySubmissions, setMySubmissions] = useState([]);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
 
   const isPastDue = (dueDate) => {
     if (!dueDate) return false;
@@ -30,9 +42,14 @@ export default function StudentDashboard() {
         router.replace("/teacher");
         return;
       }
-      const [assignmentRes, resultRes] = await Promise.all([getAssignments(), getStudentResults()]);
+      const [assignmentRes, resultRes, mineRes] = await Promise.all([
+        getAssignments(),
+        getStudentResults(),
+        getMySubmissions()
+      ]);
       setAssignments(assignmentRes.data);
       setResults(resultRes.data);
+      setMySubmissions(mineRes.data);
     } catch {
       router.replace("/login");
     } finally {
@@ -68,6 +85,24 @@ export default function StudentDashboard() {
     }
   };
 
+  const assignmentIdsWithSubmission = new Set(mySubmissions.map((s) => s.assignment_id));
+
+  const onDeleteSubmission = async (assignment) => {
+    if (!window.confirm(`Remove your submission for “${assignment.title}”? This cannot be undone.`)) {
+      return;
+    }
+    setDeleteError("");
+    setDeletingId(assignment.id);
+    try {
+      await deleteMySubmissionsForAssignment(assignment.id);
+      await load();
+    } catch (err) {
+      setDeleteError(err.response?.data?.detail || "Could not delete submission");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const onLogout = async () => {
     try {
       await logout();
@@ -93,7 +128,19 @@ export default function StudentDashboard() {
             <div className="grid gap-3">
               {assignments.map((a) => (
                 <div key={a.id} className="bg-white rounded shadow p-4">
-                  <h2 className="font-semibold">{a.title}</h2>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h2 className="font-semibold">{a.title}</h2>
+                    {assignmentIdsWithSubmission.has(a.id) && !isPastDue(a.due_date) && (
+                      <button
+                        type="button"
+                        className="shrink-0 text-sm rounded border border-red-300 bg-red-50 px-3 py-1.5 text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        disabled={deletingId === a.id}
+                        onClick={() => onDeleteSubmission(a)}
+                      >
+                        {deletingId === a.id ? "Deleting…" : "Delete my submission"}
+                      </button>
+                    )}
+                  </div>
                   <p className="text-slate-600">{a.description}</p>
                   <p className="text-sm text-slate-500 mt-1">
                     Due: {a.due_date ? new Date(a.due_date).toLocaleString() : "No due date"}
@@ -101,9 +148,13 @@ export default function StudentDashboard() {
                   <p className="text-sm text-slate-500">
                     Multiple submissions: {a.allow_multiple_submissions ? "Allowed (best score kept)" : "Not allowed"}
                   </p>
+                  {assignmentIdsWithSubmission.has(a.id) && isPastDue(a.due_date) && (
+                    <p className="text-xs text-slate-500 mt-2">Submission is locked after the due date; deletion is not available.</p>
+                  )}
                 </div>
               ))}
             </div>
+            {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
             <form onSubmit={onSubmit} className="bg-white rounded shadow p-4 space-y-3">
               <h2 className="font-semibold">Submit Assignment</h2>
               <select className="w-full border p-2 rounded" value={submissionState.assignment_id} onChange={(e) => setSubmissionState({ ...submissionState, assignment_id: e.target.value })} required>
@@ -116,7 +167,7 @@ export default function StudentDashboard() {
               <input
                 className="w-full border p-2 rounded"
                 type="file"
-                accept=".png,.jpg,.jpeg,.pdf,.txt"
+                accept=".png,.jpg,.jpeg,.pdf,.txt,.tif,.tiff,.webp,.bmp"
                 onChange={(e) => setSubmissionState({ ...submissionState, file: e.target.files?.[0] || null })}
               />
               {error && <p className="text-sm text-red-600">{error}</p>}
@@ -148,8 +199,15 @@ export default function StudentDashboard() {
               {results.map((result) => (
                 <div key={result.id} className="bg-white rounded shadow p-4">
                   <p><strong>Assignment:</strong> {result.assignment_title}</p>
-                  <p><strong>Score:</strong> {result.score}</p>
+                  <p>
+                    <strong>Score:</strong>{" "}
+                    {result.score}
+                    {result.feedback?.final_evaluation?.max_marks != null
+                      ? ` / ${result.feedback.final_evaluation.max_marks}`
+                      : " / 10"}
+                  </p>
                   <p><strong>Grade:</strong> {result.grade}</p>
+                  <EvaluationBreakdown result={result} />
                 </div>
               ))}
               {results.length === 0 && <p className="text-slate-600">No results published yet.</p>}

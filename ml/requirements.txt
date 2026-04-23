@@ -1,12 +1,4 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic[email]
-pydantic-settings
-passlib[bcrypt]
-bcrypt<4
-python-multipart
-# OCR / grading pipeline
+# ML / OCR stack for assignment pipeline (install in same venv as the backend).
 torch>=2.1.0
 transformers>=4.36.0
 Pillow>=10.0.0

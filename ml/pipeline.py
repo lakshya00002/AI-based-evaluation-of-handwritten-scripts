@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from ml.config import PipelineConfig
 from ml.data_acquisition import SubmissionMetadata, acquire_input
 from ml.deep_analysis import run_deep_analysis
+from ml.error_metrics import compute_ocr_error_metrics
 from ml.feedback_generator import generate_feedback
 from ml.nlp_analysis import run_nlp_analysis
 from ml.ocr_module import extract_text
@@ -22,6 +23,7 @@ class EvaluationRequest:
     reference_keywords: list[str]
     reference_concepts: list[str]
     typed_text: str | None = None
+    ocr_ground_truth_text: str | None = None
 
 
 class AssignmentEvaluationPipeline:
@@ -50,8 +52,12 @@ class AssignmentEvaluationPipeline:
                 raise ValueError("No valid path available for OCR stage.")
             ocr_output = extract_text(path)
             extracted_text = ocr_output.extracted_text
-            ocr_notes = ocr_output.notes
+            ocr_notes = list(ocr_output.notes)
             ocr_engine = ocr_output.engine_used
+            if request.typed_text and request.typed_text.strip():
+                sup = request.typed_text.strip()
+                extracted_text = f"{extracted_text}\n\n{sup}" if extracted_text.strip() else sup
+                ocr_notes.append("Appended typed supplement after OCR transcript.")
 
         # 4) NLP analysis
         nlp = run_nlp_analysis(
@@ -61,25 +67,33 @@ class AssignmentEvaluationPipeline:
             question_text=request.question_text,
         )
 
-        # 5) Deep learning analysis
+        # 5) OCR error analysis (requires ground-truth transcript)
+        ocr_error = compute_ocr_error_metrics(
+            extracted_text=extracted_text,
+            ground_truth_text=request.ocr_ground_truth_text,
+        )
+
+        # 6) Deep learning analysis
         deep = run_deep_analysis(
             student_text=extracted_text,
             reference_answer=request.reference_answer,
             reference_concepts=request.reference_concepts,
         )
 
-        # 6) Scoring engine
+        # 7) Adaptive scoring engine with weighted metric fusion
         score = compute_final_score(
-            keyword_score=nlp.keyword_score,
+            keyword_coverage_score=nlp.keyword_score,
+            bleu_score=nlp.bleu_score,
+            rouge_score=max(nlp.rouge_1_recall, nlp.rouge_l_recall),
             semantic_score=nlp.semantic_similarity_score,
-            grammar_score=nlp.grammar_score,
             relevance_score=nlp.relevance_completeness_score,
             concept_coverage=deep.concept_coverage_score,
-            coherence_score=deep.coherence_score,
+            structure_score=nlp.structure_score,
+            length_normalization_score=nlp.length_normalization_score,
             config=self.config,
         )
 
-        # 7) Feedback generation
+        # 8) Feedback generation
         feedback = generate_feedback(
             student_keywords=nlp.keywords,
             reference_keywords=request.reference_keywords,
@@ -111,8 +125,14 @@ class AssignmentEvaluationPipeline:
                     "extracted_text_present": bool(extracted_text.strip()),
                     "notes": ocr_notes,
                 },
+                "ocr_error_analysis": asdict(ocr_error),
                 "nlp_analysis": asdict(nlp),
                 "deep_analysis": asdict(deep),
+                "adaptive_scoring": {
+                    "weights": asdict(self.config.scoring_weights.normalized()),
+                    "weighted_contributions": score.weighted_breakdown,
+                    "final_score_formula": "sum(weight_i * metric_i)",
+                },
             },
             "final_evaluation": asdict(score),
             "feedback": feedback,

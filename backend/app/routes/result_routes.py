@@ -3,33 +3,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_student, require_teacher
+from app.evaluation_bundle import serialize_result_list_row
 from app.models import Assignment, Result, Submission, User
 from app.schemas import ResultListOut
 
 router = APIRouter(tags=["results"])
-
-
-def _extract_ocr_text(feedback: dict) -> str | None:
-    return (
-        feedback.get("stages", {})
-        .get("ocr_output", {})
-        .get("extracted_text")
-    )
-
-
-def _serialize_result_row(row: Result, assignment_title: str) -> dict:
-    return {
-        "id": row.id,
-        "submission_id": row.submission_id,
-        "assignment_id": row.submission.assignment_id,
-        "assignment_title": assignment_title,
-        "student_id": row.submission.student_id,
-        "score": row.score,
-        "grade": row.grade,
-        "feedback": row.feedback,
-        "ocr_extracted_text": _extract_ocr_text(row.feedback or {}),
-        "created_by": row.created_by,
-    }
 
 
 def _best_results(rows: list[Result]) -> list[Result]:
@@ -52,7 +30,7 @@ def get_student_results(student: User = Depends(require_student), db: Session = 
         .all()
     )
     filtered_rows = _best_results(rows)
-    return [_serialize_result_row(row, row.submission.assignment.title) for row in filtered_rows]
+    return [serialize_result_list_row(row, row.submission.assignment.title) for row in filtered_rows]
 
 
 @router.get("/results/teacher/{assignment_id}", response_model=list[ResultListOut])
@@ -70,4 +48,4 @@ def get_teacher_results(assignment_id: int, teacher: User = Depends(require_teac
         .all()
     )
     filtered_rows = _best_results(rows)
-    return [_serialize_result_row(row, assignment.title) for row in filtered_rows]
+    return [serialize_result_list_row(row, assignment.title) for row in filtered_rows]

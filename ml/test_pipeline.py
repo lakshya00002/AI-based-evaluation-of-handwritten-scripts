@@ -35,6 +35,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exam-id", default="EXAM-01")
     parser.add_argument("--question-id", default="Q1")
     parser.add_argument("--typed-text", default=None, help="Direct typed answer text. Overrides OCR file content.")
+    parser.add_argument(
+        "--ocr-ground-truth",
+        default=None,
+        help="Ground-truth transcript for CER/WER against OCR extracted text.",
+    )
     parser.add_argument("--max-marks", type=int, default=10)
     return parser
 
@@ -44,12 +49,14 @@ def run_pipeline_from_args(args: argparse.Namespace) -> dict:
         max_marks=args.max_marks,
         min_dpi=300,
         scoring_weights=ScoringWeights(
-            w1_keyword=0.16,
-            w2_semantic=0.22,
-            w3_grammar=0.14,
-            w4_relevance=0.16,
-            w5_concept_coverage=0.20,
-            w6_coherence=0.12,
+            w1_keyword_coverage=0.12,
+            w2_bleu_surface=0.10,
+            w3_rouge_recall=0.12,
+            w4_semantic_correctness=0.24,
+            w5_concept_coverage=0.18,
+            w6_structure_quality=0.12,
+            w7_relevance=0.06,
+            w8_length_normalization=0.06,
         ),
     )
     pipeline = AssignmentEvaluationPipeline(config=config)
@@ -59,6 +66,7 @@ def run_pipeline_from_args(args: argparse.Namespace) -> dict:
         question_id=args.question_id,
         answer_script_path=str(Path(args.input).resolve()),
         typed_text=args.typed_text,
+        ocr_ground_truth_text=args.ocr_ground_truth,
         question_text=DEFAULT_QUESTION,
         reference_answer=DEFAULT_REFERENCE_ANSWER,
         reference_keywords=DEFAULT_REFERENCE_KEYWORDS,

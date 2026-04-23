@@ -41,6 +41,39 @@ docker compose up --build
 - Teacher manual override, batch upload, WebSocket job progress
 - English + Hindi text paths (language hint for OCR/normalization)
 
+## NLP-Centric Evaluation Pipeline (Handwritten -> Score)
+
+This repository now includes an explicit end-to-end ML pipeline focused on NLP-based answer evaluation:
+
+1. **Input**: Handwritten answer image/PDF (or typed text for debugging).
+2. **OCR Processing**: Extract answer text using OCR engines (`tesseract`, `TrOCR`, `EasyOCR` fallback).
+3. **OCR Validation Output**: The extracted text is returned as `stages.ocr_output.extracted_text` for direct inspection.
+4. **Error Analysis (OCR vs Ground Truth)**:
+   - **CER** (`stages.ocr_error_analysis.cer`)
+   - **WER** (`stages.ocr_error_analysis.wer`)
+5. **NLP Evaluation**:
+   - **BLEU** (`stages.nlp_analysis.bleu_score`) for surface n-gram overlap.
+   - **ROUGE-1 / ROUGE-L** (`stages.nlp_analysis.rouge_1_recall`, `stages.nlp_analysis.rouge_l_recall`) for recall-oriented similarity.
+   - **Semantic similarity** (`stages.nlp_analysis.semantic_similarity_score`) using Sentence-BERT cosine similarity when available, with a lexical fallback.
+6. **Adaptive Scoring**:
+   - Combines keyword coverage, BLEU, ROUGE, semantic correctness, concept coverage, structure quality, relevance, and length normalization.
+   - Weight map: `stages.adaptive_scoring.weights`
+   - Per-metric contribution: `stages.adaptive_scoring.weighted_contributions`
+7. **Final Output**:
+   - Final normalized score and marks: `final_evaluation`
+   - Feedback with strengths, missing keywords, and conceptual gaps.
+
+### Run the pipeline demo
+
+```bash
+python -m ml.test_pipeline \
+  --input /absolute/path/to/answer_image_or_pdf \
+  --ocr-ground-truth "Ground truth transcript for CER/WER" \
+  --max-marks 10
+```
+
+If you want to test without OCR, pass `--typed-text "..."` and still provide `--ocr-ground-truth` for metric sanity checks.
+
 ## License
 
 MIT (adjust as needed for your institution).

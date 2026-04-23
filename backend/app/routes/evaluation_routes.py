@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_teacher
+from app.evaluation_bundle import bundle_evaluation, serialize_result_out
 from app.ml_integration import evaluate_submission
 from app.models import Assignment, Result, Submission, User
 from app.schemas import ResultOut
@@ -28,7 +29,7 @@ def evaluate(
 
     existing = db.query(Result).filter(Result.submission_id == submission.id).first()
     if existing and not force:
-        return existing
+        return serialize_result_out(existing)
     if existing and force:
         db.delete(existing)
         db.flush()
@@ -66,7 +67,8 @@ def evaluate(
         submission_id=submission.id,
         score=float(final_eval.get("marks_obtained", 0.0)),
         grade=str(final_eval.get("grade", "D")),
-        feedback=ml_result.get("feedback", {}),
+        # Persist full ML payload so UI can show detailed metrics and OCR text.
+        feedback=bundle_evaluation(ml_result),
         created_by=teacher.id,
     )
 
@@ -78,7 +80,7 @@ def evaluate(
         db.rollback()
         existing = db.query(Result).filter(Result.submission_id == submission.id).first()
         if existing:
-            return existing
+            return serialize_result_out(existing)
         raise
     db.refresh(result)
-    return result
+    return serialize_result_out(result)
