@@ -63,9 +63,9 @@ class SubmissionOut(BaseModel):
     file_path: str | None
     text: str | None
     submitted_at: datetime
-
-    class Config:
-        from_attributes = True
+    grading_complete: bool = False
+    result_score: float | None = None
+    result_grade: str | None = None
 
 
 class ResultOut(BaseModel):
@@ -86,6 +86,8 @@ class ResultListOut(BaseModel):
     assignment_id: int
     assignment_title: str
     student_id: int
+    submitted_at: datetime | None = None
+    has_submission_file: bool = False
     score: float
     grade: str
     feedback: dict

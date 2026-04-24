@@ -18,7 +18,7 @@ function num(v, digits = 4) {
   return n.toFixed(digits);
 }
 
-export default function EvaluationBreakdown({ result }) {
+export default function EvaluationBreakdown({ result, collapsible = true }) {
   const [showRaw, setShowRaw] = useState(false);
 
   const payload = useMemo(() => {
@@ -84,8 +84,8 @@ export default function EvaluationBreakdown({ result }) {
     return null;
   }
 
-  return (
-    <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+  const main = (
+    <>
       <h3 className="text-sm font-semibold text-slate-800">Assignment evaluation</h3>
 
       {incomplete && (
@@ -194,6 +194,23 @@ export default function EvaluationBreakdown({ result }) {
           <pre className="mt-2 max-h-96 overflow-auto rounded bg-slate-100 p-3 text-xs">{JSON.stringify(feedback, null, 2)}</pre>
         )}
       </div>
-    </div>
+    </>
   );
+
+  if (collapsible) {
+    return (
+      <details className="mt-4 rounded-lg border border-slate-200 bg-white shadow-sm open:ring-1 open:ring-slate-200">
+        <summary className="cursor-pointer list-none rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
+          <span className="text-indigo-700">▶</span>{" "}
+          <span className="ml-1">Open full evaluation (metrics, extracted text, raw JSON)</span>
+          <span className="mt-0.5 block text-xs font-normal text-slate-500">
+            Stays closed until you expand — easier to scan many results.
+          </span>
+        </summary>
+        <div className="space-y-4 border-t border-slate-200 px-3 py-3">{main}</div>
+      </details>
+    );
+  }
+
+  return <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">{main}</div>;
 }

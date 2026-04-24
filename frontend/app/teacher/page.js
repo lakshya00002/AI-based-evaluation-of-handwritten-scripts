@@ -11,7 +11,8 @@ import {
   getMe,
   getSubmissions,
   getTeacherResults,
-  logout
+  logout,
+  submissionFileUrl
 } from "../../lib/api";
 
 const tabs = ["Create Assignment", "Submissions", "Results"];
@@ -25,6 +26,7 @@ export default function TeacherDashboard() {
   const [results, setResults] = useState([]);
   const [resultsError, setResultsError] = useState("");
   const [loadingResults, setLoadingResults] = useState(false);
+  const [showAllSubmissions, setShowAllSubmissions] = useState(true);
   const [loading, setLoading] = useState(true);
   const [evalBusy, setEvalBusy] = useState(null);
   const [evalNotice, setEvalNotice] = useState("");
@@ -83,13 +85,29 @@ export default function TeacherDashboard() {
       }
     };
     fetchData();
-  }, [active, selectedAssignmentId]);
+  }, [active, selectedAssignmentId, showAllSubmissions]);
+
+  useEffect(() => {
+    if (active !== "Submissions" || !selectedAssignmentId) return;
+    if (!submissions.some((s) => !s.grading_complete)) return;
+    const id = setInterval(async () => {
+      try {
+        const { data } = await getSubmissions(selectedAssignmentId);
+        setSubmissions(data);
+      } catch {
+        // ignore
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [active, selectedAssignmentId, submissions]);
 
   const fetchResults = async (assignmentId) => {
     setLoadingResults(true);
     setResultsError("");
     try {
-      const { data } = await getTeacherResults(Number(assignmentId));
+      const { data } = await getTeacherResults(Number(assignmentId), {
+        eachSubmission: showAllSubmissions
+      });
       setResults(data);
     } catch (err) {
       setResults([]);
@@ -191,8 +209,32 @@ export default function TeacherDashboard() {
                 <p><strong>Submission ID:</strong> {submission.id}</p>
                 <p><strong>Student ID:</strong> {submission.student_id}</p>
                 <p><strong>Text:</strong> {submission.text || "-"}</p>
-                <p><strong>File path:</strong> {submission.file_path || "-"}</p>
-                <p className="text-sm text-slate-500 mt-2">This submission is auto-evaluated at upload time.</p>
+                <p>
+                  <strong>Submitted file:</strong>{" "}
+                  {submission.file_path ? (
+                    <a
+                      href={submissionFileUrl(submission.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 hover:underline"
+                    >
+                      View or download
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </p>
+                <p>
+                  <strong>Grading:</strong>{" "}
+                  {submission.grading_complete ? (
+                    <>
+                      score {submission.result_score ?? "—"} · grade {submission.result_grade ?? "—"}
+                    </>
+                  ) : (
+                    <span className="text-amber-700">In progress (refresh in a few seconds)…</span>
+                  )}
+                </p>
+                <p className="text-sm text-slate-500 mt-2">Grading runs in the background after upload.</p>
                 <button
                   type="button"
                   className="mt-2 text-sm bg-indigo-600 text-white px-3 py-1.5 rounded disabled:opacity-50"
@@ -209,6 +251,15 @@ export default function TeacherDashboard() {
         {active === "Results" && (
           <div className="space-y-3">
             <h1 className="text-2xl font-bold">Results for Assignment #{selectedAssignmentId}</h1>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={showAllSubmissions}
+                onChange={(e) => setShowAllSubmissions(e.target.checked)}
+              />
+              Show all graded attempts (per submission), not only the best score per student
+            </label>
             {loadingResults && <p className="text-slate-600">Loading results...</p>}
             {resultsError && <p className="text-red-600">{resultsError}</p>}
             {!loadingResults && !resultsError && results.length === 0 && (
@@ -221,7 +272,25 @@ export default function TeacherDashboard() {
               <div key={result.id} className="bg-white rounded shadow p-4">
                 <p><strong>Assignment:</strong> {result.assignment_title}</p>
                 <p><strong>Submission:</strong> #{result.submission_id}</p>
+                {result.submitted_at && (
+                  <p>
+                    <strong>Submitted:</strong>{" "}
+                    {new Date(result.submitted_at).toLocaleString()}
+                  </p>
+                )}
                 <p><strong>Student ID:</strong> {result.student_id}</p>
+                {result.has_submission_file && (
+                  <p>
+                    <a
+                      href={submissionFileUrl(result.submission_id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 hover:underline"
+                    >
+                      View or download submitted file
+                    </a>
+                  </p>
+                )}
                 <p>
                   <strong>Score:</strong>{" "}
                   {result.score}

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -21,31 +22,48 @@ def _best_results(rows: list[Result]) -> list[Result]:
 
 
 @router.get("/results/student", response_model=list[ResultListOut])
-def get_student_results(student: User = Depends(require_student), db: Session = Depends(get_db)):
-    rows = (
+def get_student_results(
+    student: User = Depends(require_student),
+    db: Session = Depends(get_db),
+    each_submission: bool = Query(False, description="If true, return every graded attempt (not only best per assignment)."),
+):
+    q = (
         db.query(Result)
         .join(Submission, Submission.id == Result.submission_id)
         .join(Assignment, Assignment.id == Submission.assignment_id)
         .filter(Submission.student_id == student.id)
-        .all()
     )
-    filtered_rows = _best_results(rows)
-    return [serialize_result_list_row(row, row.submission.assignment.title) for row in filtered_rows]
+    if each_submission:
+        rows = q.order_by(desc(Submission.submitted_at), desc(Result.id)).all()
+    else:
+        all_rows = q.all()
+        rows = _best_results(all_rows)
+    return [serialize_result_list_row(row, row.submission.assignment.title) for row in rows]
 
 
 @router.get("/results/teacher/{assignment_id}", response_model=list[ResultListOut])
-def get_teacher_results(assignment_id: int, teacher: User = Depends(require_teacher), db: Session = Depends(get_db)):
+def get_teacher_results(
+    assignment_id: int,
+    teacher: User = Depends(require_teacher),
+    db: Session = Depends(get_db),
+    each_submission: bool = Query(
+        False,
+        description="If true, return every result row (each graded submission); if false, only the best score per student.",
+    ),
+):
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
     if assignment.created_by != teacher.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot view results for this assignment")
 
-    rows = (
+    q = (
         db.query(Result)
         .join(Submission, Submission.id == Result.submission_id)
         .filter(Submission.assignment_id == assignment_id)
-        .all()
     )
-    filtered_rows = _best_results(rows)
-    return [serialize_result_list_row(row, assignment.title) for row in filtered_rows]
+    if each_submission:
+        rows = q.order_by(desc(Submission.submitted_at), desc(Result.id)).all()
+    else:
+        rows = _best_results(q.all())
+    return [serialize_result_list_row(row, assignment.title) for row in rows]

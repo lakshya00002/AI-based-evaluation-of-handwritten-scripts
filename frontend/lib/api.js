@@ -5,6 +5,12 @@ const api = axios.create({
   withCredentials: true
 });
 
+export const getApiBaseUrl = () => process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+/** Opens in a new tab with session cookies (log in to the API first). */
+export const submissionFileUrl = (submissionId) =>
+  `${getApiBaseUrl()}/submissions/${submissionId}/file`;
+
 export const signup = (payload) => api.post("/signup", payload);
 export const login = (payload) => api.post("/login", payload);
 export const logout = () => api.post("/logout");
@@ -36,7 +42,9 @@ export const deleteMySubmissionsForAssignment = (assignmentId) =>
 export const evaluateSubmission = (submissionId, { force = true } = {}) =>
   api.post(`/evaluate/${submissionId}?force=${force ? "true" : "false"}`);
 
-export const getStudentResults = () => api.get("/results/student");
-export const getTeacherResults = (assignmentId) => api.get(`/results/teacher/${assignmentId}`);
+export const getStudentResults = ({ eachSubmission = false } = {}) =>
+  api.get("/results/student", { params: { each_submission: eachSubmission } });
 
+export const getTeacherResults = (assignmentId, { eachSubmission = false } = {}) =>
+  api.get(`/results/teacher/${assignmentId}`, { params: { each_submission: eachSubmission } });
 export default api;

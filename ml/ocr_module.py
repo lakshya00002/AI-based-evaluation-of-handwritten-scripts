@@ -524,6 +524,90 @@ def _run_neural_ocr_on_pages(pages: list[Image.Image], notes: list[str]) -> tupl
     return pick[0], pick[1]
 
 
+def _cloud_ocr_mode() -> str:
+    m = os.getenv("OCR_CLOUD_MODE", "cascade").strip().lower()
+    if m in ("off", "0", "false", "no", "local", "local_only", "neural"):
+        return "off"
+    if m in ("ensemble", "all", "max"):
+        return "ensemble"
+    return "cascade"
+
+
+def _run_best_ocr_on_pages(pages: list[Image.Image], notes: list[str]) -> tuple[str, str]:
+    """
+    If OCR_CLOUD_MODE allows and credentials are set, use Google Vision and/or Azure Read,
+    else local neural (RapidOCR/EasyOCR). Cascade tries GCP → Azure → local; ensemble
+    runs all available sources and keeps the best _transcript_quality_score.
+    """
+    mode = _cloud_ocr_mode()
+    if mode == "off":
+        return _run_neural_ocr_on_pages(pages, notes)
+
+    try:
+        from ml import cloud_ocr
+    except ImportError as exc:
+        notes.append(f"Cloud OCR unavailable ({exc!s}); using local neural only.")
+        return _run_neural_ocr_on_pages(pages, notes)
+
+    g_ok = cloud_ocr.google_configured()
+    a_ok = cloud_ocr.azure_configured()
+    if not (g_ok or a_ok) and mode == "ensemble":
+        return _run_neural_ocr_on_pages(pages, notes)
+    if not (g_ok or a_ok) and mode == "cascade":
+        return _run_neural_ocr_on_pages(pages, notes)
+
+    if mode == "ensemble":
+        cands: list[tuple[str, str, float]] = []
+        if g_ok:
+            try:
+                t = cloud_ocr.google_document_text(pages, notes)
+                if t.strip():
+                    cands.append((t, "google_vision", _transcript_quality_score(t)))
+            except Exception as exc:
+                notes.append(f"Google Vision: {exc!s}")
+        if a_ok:
+            try:
+                t = cloud_ocr.azure_read_text(pages, notes)
+                if t.strip():
+                    cands.append((t, "azure_read", _transcript_quality_score(t)))
+            except Exception as exc:
+                notes.append(f"Azure Read: {exc!s}")
+        try:
+            t_n, lab = _run_neural_ocr_on_pages(pages, notes)
+            if t_n.strip():
+                cands.append((t_n, lab, _transcript_quality_score(t_n)))
+        except Exception as exc:
+            notes.append(f"Local neural: {exc!s}")
+        if not cands:
+            return "", "none"
+        pick = max(cands, key=lambda x: x[2])
+        notes.append(
+            "OCR_CLOUD_MODE=ensemble: chose "
+            f"{pick[1]} (quality={pick[2]:.2f}; "
+            + ", ".join(f"{c[1]}={c[2]:.2f}" for c in cands)
+            + ")."
+        )
+        return pick[0], pick[1]
+
+    if g_ok:
+        try:
+            t = cloud_ocr.google_document_text(pages, notes)
+            if t.strip():
+                notes.append("OCR cascade: using Google Cloud Vision.")
+                return t, "google_vision"
+        except Exception as exc:
+            notes.append(f"Google Vision: {exc!s}")
+    if a_ok:
+        try:
+            t = cloud_ocr.azure_read_text(pages, notes)
+            if t.strip():
+                notes.append("OCR cascade: using Azure prebuilt-read.")
+                return t, "azure_read"
+        except Exception as exc:
+            notes.append(f"Azure Read: {exc!s}")
+    return _run_neural_ocr_on_pages(pages, notes)
+
+
 def _pdf_render_dpi() -> int:
     return int(float(os.getenv("OCR_PDF_RENDER_DPI", "400")))
 
@@ -619,11 +703,11 @@ def extract_text(path: Path) -> OCRResult:
     if suffix in RASTER_SUFFIXES:
         try:
             notes.append(
-                "OCR pipeline: local neural (OCR_NEURAL_BACKEND=best|rapid|easyocr; "
-                "text boxes ordered top-to-bottom, left-to-right)."
+                "OCR pipeline: cloud (optional: OCR_USE_GOOGLE_VISION / OCR_USE_AZURE_READ) + "
+                "local neural (OCR_NEURAL_BACKEND=best|rapid|easyocr; boxes in reading order)."
             )
             pages = _load_image_pages(path)
-            text, label = _run_neural_ocr_on_pages(pages, notes)
+            text, label = _run_best_ocr_on_pages(pages, notes)
             if not text.strip() and mode == "auto":
                 notes.append("Neural OCR empty; falling back to OCRmyPDF.")
                 text = _extract_ocrmypdf_only(path, notes, image_dpi=None)
@@ -654,9 +738,12 @@ def extract_text(path: Path) -> OCRResult:
             nlines, nwords = _segment_lines_words(text)
             notes.append(f"Detected ~{nlines} line(s), ~{nwords} word segments.")
             return OCRResult(extracted_text=text, engine_used="pymupdf", notes=notes)
-        notes.append("PDF: rendering pages + local neural OCR (RapidOCR/EasyOCR; see OCR_NEURAL_BACKEND).")
+        notes.append(
+            "PDF: rendering pages + OCR (cloud if configured, else local neural; "
+            "OCR_CLOUD_MODE=cascade|ensemble|off)."
+        )
         pages = _pdf_to_page_images(path, notes)
-        text, label = _run_neural_ocr_on_pages(pages, notes)
+        text, label = _run_best_ocr_on_pages(pages, notes)
         if not text.strip() and mode == "auto":
             notes.append("Neural OCR empty; falling back to Tesseract (OCRmyPDF).")
             text = _run_ocrmypdf(path, notes, image_dpi=None)

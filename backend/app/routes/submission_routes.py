@@ -1,17 +1,20 @@
+import mimetypes
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
 from app.database import get_db
-from app.dependencies import require_student, require_teacher
-from app.evaluation_bundle import bundle_evaluation
-from app.ml_integration import evaluate_submission
+from app.dependencies import get_current_user, require_student, require_teacher
+from app.grading_tasks import run_grading_for_submission
+from app.ml_integration import _resolve_submission_path
 from app.models import Assignment, Result, Submission, User
 from app.schemas import SubmissionOut
+from app.submission_out import submission_to_out
 
 router = APIRouter(tags=["submissions"])
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
@@ -47,14 +50,54 @@ def _unlink_stored_upload(file_path: str | None) -> None:
             return
 
 
+@router.get("/submissions/{submission_id}/file")
+def download_submission_file(
+    submission_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Serve the uploaded file (e.g. PDF) for the submission owner or the assignment's teacher."""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub or not sub.file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No file for this submission")
+
+    if user.role == "student":
+        if sub.student_id != user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your submission")
+    elif user.role == "teacher":
+        assignment = db.query(Assignment).filter(Assignment.id == sub.assignment_id).first()
+        if not assignment or assignment.created_by != user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access this submission")
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    resolved = _resolve_submission_path(sub.file_path)
+    if not resolved:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File path could not be resolved")
+    path = Path(resolved)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File is no longer on disk")
+
+    media_type, _ = mimetypes.guess_type(str(path))
+    media_type = media_type or "application/octet-stream"
+    safe_name = path.name
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=safe_name,
+        content_disposition_type="inline",
+    )
+
+
 @router.get("/submissions/mine", response_model=list[SubmissionOut])
 def list_my_submissions(student: User = Depends(require_student), db: Session = Depends(get_db)):
-    return (
+    rows = (
         db.query(Submission)
         .filter(Submission.student_id == student.id)
         .order_by(Submission.submitted_at.desc())
         .all()
     )
+    return [submission_to_out(db, s) for s in rows]
 
 
 @router.delete("/submissions/mine/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -95,6 +138,7 @@ def delete_my_submissions_for_assignment(
 
 @router.post("/submit", response_model=SubmissionOut)
 def submit_assignment(
+    background_tasks: BackgroundTasks,
     assignment_id: int = Form(...),
     text: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
@@ -161,57 +205,12 @@ def submit_assignment(
             detail="Database is busy or locked. Close other apps using app.db and try again.",
         ) from None
 
-    # End transaction before OCR/ML so SQLite is not write-locked for minutes during grading.
-    try:
-        ml_result = evaluate_submission(
-            student_id=student.id,
-            assignment_id=assignment.id,
-            submission_id=submission_id,
-            title=assignment.title,
-            description=assignment.description,
-            reference_answer=assignment.reference_answer,
-            reference_keywords=assignment.reference_keywords,
-            reference_concepts=assignment.reference_concepts,
-            text=text,
-            file_path=file_path,
-        )
+    saved = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not saved:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Submission not found after save.")
 
-        ocr_output = ml_result.get("stages", {}).get("ocr_output", {})
-        extracted_text_present = bool(ocr_output.get("extracted_text_present"))
-        if not extracted_text_present:
-            notes = ocr_output.get("notes", [])
-            detail = "OCR could not extract text from this submission."
-            if notes:
-                detail = f"{detail} Details: {' | '.join(str(note) for note in notes[:3])}"
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
-
-        final_eval = ml_result.get("final_evaluation", {})
-        result = Result(
-            submission_id=submission_id,
-            score=float(final_eval.get("marks_obtained", 0.0)),
-            grade=str(final_eval.get("grade", "D")),
-            feedback=bundle_evaluation(ml_result),
-            created_by=assignment.created_by,
-        )
-        db.add(result)
-        db.commit()
-        saved = db.query(Submission).filter(Submission.id == submission_id).first()
-        if not saved:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Submission not found after grading.")
-        return saved
-    except HTTPException:
-        db.rollback()
-        _delete_submission_row(db, submission_id)
-        _unlink_stored_upload(file_path)
-        raise
-    except Exception as exc:
-        db.rollback()
-        _delete_submission_row(db, submission_id)
-        _unlink_stored_upload(file_path)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"ML evaluation failed during submission: {exc}",
-        ) from exc
+    background_tasks.add_task(run_grading_for_submission, submission_id)
+    return submission_to_out(db, saved)
 
 
 @router.get("/submissions/{assignment_id}", response_model=list[SubmissionOut])
@@ -224,4 +223,10 @@ def list_submissions(
     if not assignment or assignment.created_by != teacher.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access submissions")
 
-    return db.query(Submission).filter(Submission.assignment_id == assignment_id).all()
+    rows = (
+        db.query(Submission)
+        .filter(Submission.assignment_id == assignment_id)
+        .order_by(Submission.submitted_at.desc())
+        .all()
+    )
+    return [submission_to_out(db, s) for s in rows]

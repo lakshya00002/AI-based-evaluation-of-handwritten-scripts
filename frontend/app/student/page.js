@@ -11,7 +11,8 @@ import {
   getMySubmissions,
   getStudentResults,
   logout,
-  submitAssignment
+  submitAssignment,
+  submissionFileUrl
 } from "../../lib/api";
 
 const tabs = ["Assignments", "My Results"];
@@ -28,14 +29,16 @@ export default function StudentDashboard() {
   const [mySubmissions, setMySubmissions] = useState([]);
   const [deletingId, setDeletingId] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [pollingSubmissionId, setPollingSubmissionId] = useState(null);
 
   const isPastDue = (dueDate) => {
     if (!dueDate) return false;
     return new Date(dueDate).getTime() < Date.now();
   };
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (options = { showSpinner: true }) => {
+    if (options.showSpinner) setLoading(true);
     try {
       const me = await getMe();
       if (me.data.role !== "student") {
@@ -44,7 +47,7 @@ export default function StudentDashboard() {
       }
       const [assignmentRes, resultRes, mineRes] = await Promise.all([
         getAssignments(),
-        getStudentResults(),
+        getStudentResults({ eachSubmission: true }),
         getMySubmissions()
       ]);
       setAssignments(assignmentRes.data);
@@ -53,13 +56,54 @@ export default function StudentDashboard() {
     } catch {
       router.replace("/login");
     } finally {
-      setLoading(false);
+      if (options.showSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!pollingSubmissionId) return undefined;
+    const t = setInterval(async () => {
+      try {
+        const { data } = await getMySubmissions();
+        setMySubmissions(data);
+        const s = data.find((row) => row.id === pollingSubmissionId);
+        if (s?.grading_complete) {
+          setPollingSubmissionId(null);
+          const [ar, rr] = await Promise.all([
+            getAssignments(),
+            getStudentResults({ eachSubmission: true })
+          ]);
+          setAssignments(ar.data);
+          setResults(rr.data);
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [pollingSubmissionId]);
+
+  useEffect(() => {
+    const f = submissionState.file;
+    if (!f) {
+      setPdfPreviewUrl(null);
+      return undefined;
+    }
+    const isPdf = f.type === "application/pdf" || (f.name && f.name.toLowerCase().endsWith(".pdf"));
+    if (!isPdf) {
+      setPdfPreviewUrl(null);
+      return undefined;
+    }
+    const u = URL.createObjectURL(f);
+    setPdfPreviewUrl(u);
+    return () => {
+      URL.revokeObjectURL(u);
+    };
+  }, [submissionState.file]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -71,13 +115,16 @@ export default function StudentDashboard() {
     }
     setSubmitting(true);
     try {
-      await submitAssignment({
+      const { data: newSub } = await submitAssignment({
         assignmentId: Number(submissionState.assignment_id),
         text: submissionState.text?.trim() || "",
         file: submissionState.file
       });
       setSubmissionState({ assignment_id: "", text: "", file: null });
-      await load();
+      if (newSub && newSub.grading_complete === false) {
+        setPollingSubmissionId(newSub.id);
+      }
+      await load({ showSpinner: false });
     } catch (err) {
       setError(err.response?.data?.detail || "Submission failed");
     } finally {
@@ -151,6 +198,43 @@ export default function StudentDashboard() {
                   {assignmentIdsWithSubmission.has(a.id) && isPastDue(a.due_date) && (
                     <p className="text-xs text-slate-500 mt-2">Submission is locked after the due date; deletion is not available.</p>
                   )}
+                  {mySubmissions
+                    .filter((s) => s.assignment_id === a.id)
+                    .map((s) => (
+                      <div key={s.id} className="mt-3 pt-2 border-t border-slate-100 text-sm text-slate-600">
+                        <p>
+                          Submission #{s.id}
+                          {s.submitted_at
+                            ? ` · ${new Date(s.submitted_at).toLocaleString()}`
+                            : ""}
+                        </p>
+                        {s.file_path ? (
+                          <a
+                            href={submissionFileUrl(s.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline font-medium"
+                          >
+                            View your submitted file
+                          </a>
+                        ) : (
+                          <span className="text-slate-500">(text only)</span>
+                        )}
+                        <p className="mt-1.5 text-slate-800">
+                          {s.grading_complete ? (
+                            <>
+                              <strong>Score:</strong> {s.result_score ?? "—"} · <strong>Grade:</strong>{" "}
+                              {s.result_grade ?? "—"}
+                            </>
+                          ) : (
+                            <span className="text-amber-800">
+                              <strong>Grading in progress</strong> — this usually takes a few seconds. This page
+                              updates automatically.
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    ))}
                 </div>
               ))}
             </div>
@@ -170,6 +254,17 @@ export default function StudentDashboard() {
                 accept=".png,.jpg,.jpeg,.pdf,.txt,.tif,.tiff,.webp,.bmp"
                 onChange={(e) => setSubmissionState({ ...submissionState, file: e.target.files?.[0] || null })}
               />
+              {pdfPreviewUrl && (
+                <div className="border border-slate-200 rounded overflow-hidden bg-slate-50">
+                  <p className="text-xs text-slate-500 px-2 py-1 bg-slate-100">Preview (before you submit)</p>
+                  <object
+                    data={pdfPreviewUrl}
+                    type="application/pdf"
+                    className="w-full h-[min(60vh,520px)]"
+                    title="PDF preview"
+                  />
+                </div>
+              )}
               {error && <p className="text-sm text-red-600">{error}</p>}
               <button
                 className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
@@ -199,6 +294,26 @@ export default function StudentDashboard() {
               {results.map((result) => (
                 <div key={result.id} className="bg-white rounded shadow p-4">
                   <p><strong>Assignment:</strong> {result.assignment_title}</p>
+                  <p>
+                    <strong>Submission #:</strong> {result.submission_id}
+                  </p>
+                  {result.submitted_at && (
+                    <p>
+                      <strong>Submitted:</strong> {new Date(result.submitted_at).toLocaleString()}
+                    </p>
+                  )}
+                  {result.has_submission_file && (
+                    <p>
+                      <a
+                        href={submissionFileUrl(result.submission_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:underline font-medium"
+                      >
+                        View your submitted file
+                      </a>
+                    </p>
+                  )}
                   <p>
                     <strong>Score:</strong>{" "}
                     {result.score}

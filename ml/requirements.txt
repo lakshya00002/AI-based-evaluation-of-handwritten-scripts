@@ -13,3 +13,6 @@ pypdf>=4.0.0
 pymupdf>=1.24.0
 ocrmypdf>=15.0.0
 easyocr>=1.7.0
+# Optional cloud OCR (set OCR_USE_GOOGLE_VISION / OCR_USE_AZURE_READ; see ml/cloud_ocr.py)
+google-cloud-vision>=3.4.0
+azure-ai-formrecognizer>=3.3.0

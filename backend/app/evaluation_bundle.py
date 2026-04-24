@@ -87,6 +87,8 @@ def serialize_result_list_row(result: Result, assignment_title: str) -> ResultLi
         assignment_id=result.submission.assignment_id,
         assignment_title=assignment_title,
         student_id=result.submission.student_id,
+        submitted_at=result.submission.submitted_at,
+        has_submission_file=bool(result.submission.file_path),
         score=result.score,
         grade=result.grade,
         feedback=payload,
